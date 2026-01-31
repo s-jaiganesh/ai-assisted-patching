@@ -1,0 +1,22 @@
+---
+patch_db:
+  host: "postgres.company.net"
+  port: 5432
+  dbname: "patching"
+  user: "patch_user"
+  password: "CHANGE_ME"
+patch_table: "patch_status"
+
+drupal:
+  base_url: "https://drupal.company.net"
+  nid: 12345
+  username: "CHANGE_ME"
+  password: "CHANGE_ME"
+  body_format: "full_html"
+
+serial_batch_size: 20
+reboot_allowed: true
+dashboard_refresh_each_step: false
+
+min_free_mb_root: 1024
+min_free_mb_boot: 256

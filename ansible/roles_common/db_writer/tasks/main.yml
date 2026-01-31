@@ -1,0 +1,34 @@
+---
+- ansible.builtin.set_fact:
+    _payload_json: "{{ payload | default({}) | to_json }}"
+    _summary: "{{ summary | default('') | replace("'", "''") }}"
+    _reason_code: "{{ reason_code | default('') | replace("'", "''") }}"
+    _status: "{{ status | default('unknown') | replace("'", "''") }}"
+    _step: "{{ step | default('unknown') | replace("'", "''") }}"
+
+- community.postgresql.postgresql_query:
+    login_host: "{{ patch_db.host }}"
+    login_user: "{{ patch_db.user }}"
+    login_password: "{{ patch_db.password }}"
+    port: "{{ patch_db.port | default(5432) }}"
+    db: "{{ patch_db.dbname }}"
+    query: |
+      INSERT INTO {{ patch_table }} (server)
+      VALUES ('{{ inventory_hostname }}')
+      ON CONFLICT (server) DO NOTHING;
+  delegate_to: localhost
+
+- community.postgresql.postgresql_query:
+    login_host: "{{ patch_db.host }}"
+    login_user: "{{ patch_db.user }}"
+    login_password: "{{ patch_db.password }}"
+    port: "{{ patch_db.port | default(5432) }}"
+    db: "{{ patch_db.dbname }}"
+    query: |
+      UPDATE {{ patch_table }}
+      SET {{ _step }} = '{{ _status }}',
+          {{ _step }}_reason = '{{ _reason_code }}',
+          {{ _step }}_summary = '{{ _summary }}',
+          {{ _step }}_json = '{{ _payload_json }}'
+      WHERE server='{{ inventory_hostname }}';
+  delegate_to: localhost

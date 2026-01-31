@@ -1,0 +1,57 @@
+---
+- block:
+    - ansible.builtin.set_fact:
+        _rhel_major: "{{ ansible_facts.distribution_major_version | default('0') | int }}"
+
+    - ansible.builtin.yum:
+        name: "*"
+        state: latest
+      become: true
+      when: _rhel_major == 7
+      register: patch_out
+
+    - ansible.builtin.dnf:
+        name: "*"
+        state: latest
+      become: true
+      when: _rhel_major >= 8
+      register: patch_out
+
+    - ansible.builtin.set_fact:
+        step_status: success
+        step_reason: OK
+        step_summary: "Patches applied"
+        step_payload:
+          changed: "{{ patch_out.changed | default(false) }}"
+
+  rescue:
+    - ansible.builtin.shell: "df -h / /var /boot 2>/dev/null || true"
+      register: df_out
+      changed_when: false
+      become: true
+
+    - ansible.builtin.set_fact:
+        step_status: failed
+        step_reason: >-
+          {% set m = (ansible_failed_result.msg | default('') ~ ' ' ~ ansible_failed_result.stderr | default('')) %}
+          {% if 'No space left' in m or 'no space left' in m %}NO_SPACE{% else %}PATCH_FAILED{% endif %}
+        step_summary: "{{ ansible_failed_result.msg | default('patch failed') }}"
+        step_payload:
+          msg: "{{ ansible_failed_result.msg | default('') }}"
+          stderr: "{{ ansible_failed_result.stderr | default('') }}"
+          stdout_tail: "{{ (ansible_failed_result.stdout | default(''))[-4000:] }}"
+          df: "{{ df_out.stdout | default('') }}"
+
+  always:
+    - include_role: { name: roles_common/db_writer }
+      vars:
+        step: apply_patch
+        status: "{{ step_status }}"
+        reason_code: "{{ step_reason }}"
+        summary: "{{ step_summary }}"
+        payload: "{{ step_payload }}"
+
+    - include_role: { name: roles_common/drupal_update }
+      vars: { dashboard_phase: apply_patch }
+      when: (dashboard_refresh_each_step | default(false)) | bool
+      run_once: true

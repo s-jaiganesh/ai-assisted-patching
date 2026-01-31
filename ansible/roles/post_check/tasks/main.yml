@@ -1,0 +1,27 @@
+---
+- block:
+    - ansible.builtin.ping:
+    - ansible.builtin.set_fact:
+        step_status: success
+        step_reason: OK
+        step_summary: "Host reachable after patching"
+        step_payload: {}
+  rescue:
+    - ansible.builtin.set_fact:
+        step_status: failed
+        step_reason: POST_CHECK_FAILED
+        step_summary: "{{ ansible_failed_result.msg | default('post check failed') }}"
+        step_payload: { msg: "{{ ansible_failed_result.msg | default('') }}" }
+  always:
+    - include_role: { name: roles_common/db_writer }
+      vars:
+        step: post_check
+        status: "{{ step_status }}"
+        reason_code: "{{ step_reason }}"
+        summary: "{{ step_summary }}"
+        payload: "{{ step_payload }}"
+
+    - include_role: { name: roles_common/drupal_update }
+      vars: { dashboard_phase: post_check }
+      when: (dashboard_refresh_each_step | default(false)) | bool
+      run_once: true

@@ -1,0 +1,55 @@
+---
+- community.postgresql.postgresql_query:
+    login_host: "{{ patch_db.host }}"
+    login_user: "{{ patch_db.user }}"
+    login_password: "{{ patch_db.password }}"
+    port: "{{ patch_db.port | default(5432) }}"
+    db: "{{ patch_db.dbname }}"
+    query: "SELECT * FROM {{ patch_table }} ORDER BY server;"
+  register: patch_rows
+  delegate_to: localhost
+  run_once: true
+
+- ansible.builtin.set_fact:
+    dashboard_html: |
+      <h3>Linux Patching Status ({{ dashboard_phase | default('live') }})</h3>
+      <table border="1" cellpadding="6" cellspacing="0">
+        <tr>
+          <th>Server</th><th>Pre Check</th><th>Pre Reboot</th><th>Patch</th><th>Post Reboot</th><th>Post Check</th><th>Kernel</th>
+        </tr>
+        {% for r in patch_rows.query_result %}
+        <tr>
+          <td>{{ r.server }}</td>
+          <td>{{ r.pre_check | default('NA') }}</td>
+          <td>{{ r.pre_reboot | default('NA') }}</td>
+          <td>{{ r.apply_patch | default('NA') }}</td>
+          <td>{{ r.post_reboot | default('NA') }}</td>
+          <td>{{ r.post_check | default('NA') }}</td>
+          <td>{{ r.kernel_check | default('NA') }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+  run_once: true
+
+- ansible.builtin.uri:
+    url: "{{ drupal.base_url }}/node/{{ drupal.nid }}?_format=json"
+    method: PATCH
+    user: "{{ drupal.username }}"
+    password: "{{ drupal.password }}"
+    force_basic_auth: true
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+    body_format: json
+    body:
+      body:
+        - value: "{{ dashboard_html }}"
+          format: "{{ drupal.body_format | default('full_html') }}"
+    status_code: [200, 204]
+    return_content: true
+  delegate_to: localhost
+  run_once: true
+  register: drupal_patch
+  retries: 3
+  delay: 2
+  until: drupal_patch.status in [200, 204]

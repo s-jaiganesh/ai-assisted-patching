@@ -1,0 +1,102 @@
+---
+- name: Linux Monthly Patching Orchestration (DB + Drupal updates)
+  hosts: all
+  gather_facts: true
+  serial: "{{ serial_batch_size | default(10) }}"
+  vars_files:
+    - ../vars/patching_defaults.yml
+  pre_tasks:
+    - name: Build unique table name for this run
+      ansible.builtin.set_fact:
+      run_once: true
+        patch_table: "patch_status_{{ change_id | lower | regex_replace('[^a-z0-9_]+','_') }}_{{ lookup('pipe','date +%Y%m%d_%H%M%S') }}"
+      delegate_to: localhost
+
+    - name: Create patch status table for this run
+      run_once: true
+      community.postgresql.postgresql_query:
+        login_host: "{{ patch_db.host }}"
+        login_user: "{{ patch_db.user }}"
+        login_password: "{{ patch_db.password }}"
+        port: "{{ patch_db.port | default(5432) }}"
+        db: "{{ patch_db.dbname }}"
+        query: |
+          CREATE TABLE IF NOT EXISTS {{ patch_table }} (
+            server text PRIMARY KEY,
+
+            pre_check text,
+            pre_check_reason text,
+            pre_check_summary text,
+            pre_check_json jsonb,
+    
+            pre_reboot text,
+            pre_reboot_reason text,
+            pre_reboot_summary text,
+            pre_reboot_json jsonb,
+    
+            apply_patch text,
+            apply_patch_reason text,
+            apply_patch_summary text,
+            apply_patch_json jsonb,
+    
+            post_reboot text,
+            post_reboot_reason text,
+            post_reboot_summary text,
+            post_reboot_json jsonb,
+    
+            post_check text,
+            post_check_reason text,
+            post_check_summary text,
+            post_check_json jsonb,
+    
+            kernel_check text,
+            kernel_check_reason text,
+            kernel_check_summary text,
+            kernel_check_json jsonb
+          );
+      delegate_to: localhost  
+    - name: Share patch_table to all hosts
+      ansible.builtin.set_fact:
+        patch_table: "{{ hostvars[groups['all'][0]].patch_table }}"
+
+  tasks:
+    - name: Initialize host failure flag
+      ansible.builtin.set_fact:
+        host_failed: false
+    
+    - name: Pre checks
+      include_role:
+        name: pre_check
+      when: not host_failed
+
+    - name: Pre reboot checks
+      include_role:
+        name: pre_reboot
+      when: not host_failed
+  
+    - name: Apply patches
+      include_role:
+        name: apply_patch
+      when: not host_failed
+  
+    - name: Post reboot
+      include_role:
+        name: post_reboot
+      when: not host_failed
+  
+    - name: Post checks
+      include_role:
+        name: post_check
+      when: not host_failed
+  
+    - name: Kernel validation
+      include_role:
+        name: kernel_check
+      when: not host_failed
+
+  post_tasks:
+    - include_role:
+        name: roles_common/drupal_update
+      vars:
+        dashboard_phase: "final"
+      run_once: true

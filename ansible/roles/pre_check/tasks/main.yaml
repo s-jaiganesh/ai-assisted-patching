@@ -1,0 +1,42 @@
+---
+- block:
+    - ansible.builtin.setup:
+        gather_subset: [min, hardware]
+
+    - ansible.builtin.set_fact:
+        _mounts: "{{ ansible_facts.mounts | default([]) }}"
+        _root: "{{ (_mounts | selectattr('mount', 'equalto', '/') | list | first) | default({}) }}"
+        _boot: "{{ (_mounts | selectattr('mount', 'equalto', '/boot') | list | first) | default({}) }}"
+
+    - ansible.builtin.assert:
+        that:
+          - (_root.size_available | default(0) | int) / 1024 / 1024 >= (min_free_mb_root | int)
+          - (_boot.size_available | default(999999999) | int) / 1024 / 1024 >= (min_free_mb_boot | int)
+        fail_msg: "Disk space precheck failed"
+
+    - ansible.builtin.set_fact:
+        step_status: success
+        step_reason: OK
+        step_summary: "Prechecks passed"
+        step_payload: {}
+
+  rescue:
+    - ansible.builtin.set_fact:
+        step_status: failed
+        step_reason: PRECHECK_FAILED
+        step_summary: "{{ ansible_failed_result.msg | default('precheck failed') }}"
+        step_payload: { msg: "{{ ansible_failed_result.msg | default('') }}" }
+
+  always:
+    - include_role: { name: roles_common/db_writer }
+      vars:
+        step: pre_check
+        status: "{{ step_status }}"
+        reason_code: "{{ step_reason }}"
+        summary: "{{ step_summary }}"
+        payload: "{{ step_payload }}"
+
+    - include_role: { name: roles_common/drupal_update }
+      vars: { dashboard_phase: pre_check }
+      when: (dashboard_refresh_each_step | default(false)) | bool
+      run_once: true

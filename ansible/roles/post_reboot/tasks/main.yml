@@ -1,0 +1,33 @@
+---
+- block:
+    - name: Reboot system
+      ansible.builtin.reboot:
+        reboot_timeout: 1800
+      become: true
+
+    - ansible.builtin.set_fact:
+        step_status: success
+        step_reason: OK
+        step_summary: "Reboot completed successfully"
+        step_payload: {}
+
+  rescue:
+    - ansible.builtin.set_fact:
+        step_status: failed
+        step_reason: POSTREBOOT_FAILED
+        step_summary: "{{ ansible_failed_result.msg | default('post reboot failed') }}"
+        step_payload: { msg: "{{ ansible_failed_result.msg | default('') }}" }
+
+  always:
+    - include_role: { name: roles_common/db_writer }
+      vars:
+        step: post_reboot
+        status: "{{ step_status }}"
+        reason_code: "{{ step_reason }}"
+        summary: "{{ step_summary }}"
+        payload: "{{ step_payload }}"
+
+    - include_role: { name: roles_common/drupal_update }
+      vars: { dashboard_phase: post_reboot }
+      when: (dashboard_refresh_each_step | default(false)) | bool
+      run_once: true
